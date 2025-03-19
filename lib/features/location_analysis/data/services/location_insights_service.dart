@@ -6,7 +6,6 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 class LocationInsightsService {
-  final String _googleApiKey = dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '';
   final String _osmBaseUrl = 'https://overpass-api.de/api/interpreter';
   final String _nominatimBaseUrl = 'https://nominatim.openstreetmap.org';
 
@@ -52,21 +51,69 @@ class LocationInsightsService {
   }
 
   Future<List<Map<String, dynamic>>> _getNearbyPlaces(double lat, double lng) async {
+    // Not: Google Places API kullanımını kaldırdık, güvenlik nedeniyle OSM API kullanacağız
     final places = <Map<String, dynamic>>[];
     final types = ['park', 'restaurant', 'cafe', 'school', 'transit_station', 'hospital', 'police'];
     
-    for (final type in types) {
-      final url = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json'
-          '?location=$lat,$lng&radius=1000&type=$type&key=$_googleApiKey';
+    // OSM Overpass API kullanarak verileri alalım
+    final query = """
+    [out:json][timeout:25];
+    (
+      node["leisure"="park"](around:1000,$lat,$lng);
+      node["amenity"="restaurant"](around:1000,$lat,$lng);
+      node["amenity"="cafe"](around:1000,$lat,$lng);
+      node["amenity"="school"](around:1000,$lat,$lng);
+      node["public_transport"="station"](around:1000,$lat,$lng);
+      node["amenity"="hospital"](around:1000,$lat,$lng);
+      node["amenity"="police"](around:1000,$lat,$lng);
+    );
+    out body;
+    >;
+    out skel qt;
+    """;
+    
+    try {
+      final response = await http.post(
+        Uri.parse(_osmBaseUrl),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {'data': query},
+      );
       
-      final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        if (data['status'] == 'OK') {
-          places.addAll(List<Map<String, dynamic>>.from(data['results']));
+        final elements = data['elements'] as List;
+        
+        for (final element in elements) {
+          final tags = element['tags'] ?? {};
+          String? type;
+          
+          if (tags['leisure'] == 'park') type = 'park';
+          else if (tags['amenity'] == 'restaurant') type = 'restaurant';
+          else if (tags['amenity'] == 'cafe') type = 'cafe';
+          else if (tags['amenity'] == 'school') type = 'school';
+          else if (tags['public_transport'] == 'station') type = 'transit_station';
+          else if (tags['amenity'] == 'hospital') type = 'hospital';
+          else if (tags['amenity'] == 'police') type = 'police';
+          
+          if (type != null) {
+            places.add({
+              'name': tags['name'] ?? 'Unnamed',
+              'vicinity': tags['addr:street'] ?? '',
+              'geometry': {
+                'location': {
+                  'lat': element['lat'],
+                  'lng': element['lon'],
+                }
+              },
+              'types': [type],
+            });
+          }
         }
       }
+    } catch (e) {
+      print('OSM API Error: $e');
     }
+    
     return places;
   }
 

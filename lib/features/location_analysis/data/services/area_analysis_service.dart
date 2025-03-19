@@ -202,7 +202,7 @@ class AreaAnalysisService {
 
   Future<Map<String, dynamic>> _getAirQuality(LatLng location) async {
     try {
-      final url = 'http://api.openweathermap.org/data/2.5/air_pollution?lat=${location.latitude}&lon=${location.longitude}&appid=${dotenv.env['OPENWEATHER_API_KEY']}';
+      final url = 'https://api.openweathermap.org/data/2.5/air_pollution?lat=${location.latitude}&lon=${location.longitude}&appid=${dotenv.env['OPENWEATHER_API_KEY']}';
       
       final response = await http.get(Uri.parse(url));
 

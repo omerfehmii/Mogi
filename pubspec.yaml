@@ -64,7 +64,6 @@ flutter:
     - .env
     - assets/images/
     - assets/icons/
-    - assets/images/default_location.png
   
   fonts:
     - family: Satoshi

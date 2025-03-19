@@ -48,6 +48,22 @@ MOGI is an AI-powered location analysis and comparison application leveraging Op
 
 ## 🔧 Technical Specifications
 
+### Environment Variables
+The application requires several API keys to function properly. Create a `.env` file in the root directory based on the `.env.example` template with the following variables:
+
+```
+GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
+OPENWEATHER_API_KEY=your_openweather_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+API_BASE_URL=your_api_base_url_here
+ENCRYPTION_SECRET=your_encryption_secret_here
+SUPABASE_URL=your_supabase_url_here
+SUPABASE_ANON_KEY=your_supabase_anon_key_here
+MAPTILER_API_KEY=your_maptiler_api_key_here
+```
+
+⚠️ **Important**: Never commit your actual API keys to version control.
+
 ### Technologies Used
 - **Frontend**: Flutter/Dart
 - **State Management**: Flutter Bloc
@@ -88,10 +104,10 @@ flutter pub get
 
 3. Create a `.env` file and add the necessary API keys:
 ```
-OPENAI_API_KEY=your_openai_api_key
-SUPABASE_URL=your_supabase_url
-SUPABASE_ANON_KEY=your_supabase_anon_key
-API_BASE_URL=your_api_base_url
+OPENAI_API_KEY=your_openai_api_key_here
+SUPABASE_URL=your_supabase_url_here
+SUPABASE_ANON_KEY=your_supabase_anon_key_here
+API_BASE_URL=your_api_base_url_here
 ```
 
 4. Run the app:

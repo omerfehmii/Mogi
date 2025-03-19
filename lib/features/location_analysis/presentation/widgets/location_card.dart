@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 enum MapStyle {
   standard,
@@ -72,7 +73,8 @@ class _LocationCardState extends State<LocationCard> with SingleTickerProviderSt
       case MapStyle.voyager:
         return 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
       case MapStyle.mapTiler3d:
-        return 'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=YOUR_MAPTILER_KEY';
+        final mapTilerKey = dotenv.env['MAPTILER_API_KEY'] ?? '';
+        return 'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=$mapTilerKey';
     }
   }
 
