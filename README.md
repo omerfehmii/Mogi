@@ -84,8 +84,8 @@ MAPTILER_API_KEY=your_maptiler_api_key_here
 ## ⚙️ Setup and Running
 
 ### Requirements
-- Flutter SDK 3.2.3 or higher
-- Dart SDK 3.2.3 or higher
+- Flutter SDK 3.21.0 or higher
+- Dart SDK 3.3.1 or higher
 - OpenAI API Key
 - Supabase Account and API Keys
 
@@ -93,8 +93,8 @@ MAPTILER_API_KEY=your_maptiler_api_key_here
 
 1. Clone the repo:
 ```bash
-git clone https://github.com/omerfehmii/mogi.git
-cd mogi
+git clone https://github.com/omerfehmii/MOGI.git
+cd MOGI
 ```
 
 2. Install dependencies:
@@ -104,10 +104,14 @@ flutter pub get
 
 3. Create a `.env` file and add the necessary API keys:
 ```
+GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
+OPENWEATHER_API_KEY=your_openweather_api_key_here
 OPENAI_API_KEY=your_openai_api_key_here
+API_BASE_URL=your_api_base_url_here
+ENCRYPTION_SECRET=your_encryption_secret_here
 SUPABASE_URL=your_supabase_url_here
 SUPABASE_ANON_KEY=your_supabase_anon_key_here
-API_BASE_URL=your_api_base_url_here
+MAPTILER_API_KEY=your_maptiler_api_key_here
 ```
 
 4. Run the app:
@@ -122,11 +126,13 @@ flutter run
 lib/
 ├── core/                  # Core structures and services
 │   ├── constants/         # Constant values
+│   ├── di/                # Dependency injection
 │   ├── errors/            # Error classes
 │   ├── network/           # Network operations
 │   ├── services/          # Basic services
 │   ├── theme/             # Theme definitions
-│   └── utils/             # Helper functions
+│   ├── utils/             # Helper functions
+│   └── widgets/           # Common widgets
 ├── features/              # App features
 │   ├── ai_assistant/      # AI Assistant feature
 │   ├── auth/              # Authentication
