@@ -1,0 +1,1599 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import '../../../ai_assistant/data/services/chat_history_service.dart';
+import '../../../ai_assistant/domain/models/message_model.dart';
+import '../../../ai_assistant/presentation/pages/ai_assistant_page.dart';
+import '../../data/services/saved_locations_service.dart';
+import '../../domain/models/saved_location_model.dart';
+import '../widgets/location_card.dart';
+import 'location_details_page.dart';
+import 'edit_profile_page.dart';
+import '../../data/services/profile_service.dart';
+import '../../data/services/location_recommendations_service.dart';
+import '../../domain/models/recently_viewed_location_model.dart';
+import '../../data/services/premium_service.dart';
+import 'chat_history_page.dart';
+
+class ProfilePage extends StatefulWidget {
+  const ProfilePage({super.key});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+// Tümünü Gör sayfası
+class AllLocationsPage extends StatefulWidget {
+  final List<SavedLocationModel> locations;
+
+  const AllLocationsPage({
+    super.key,
+    required this.locations,
+  });
+
+  @override
+  State<AllLocationsPage> createState() => _AllLocationsPageState();
+}
+
+class _AllLocationsPageState extends State<AllLocationsPage> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.background,
+      appBar: AppBar(
+        title: const Text(
+          'Saved Locations',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF08104F),
+          ),
+        ),
+        centerTitle: false,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: const IconThemeData(
+          color: Color(0xFF08104F),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+          color: const Color(0xFF08104F),
+        ),
+      ),
+      body: GridView.builder(
+        padding: const EdgeInsets.all(16),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+          childAspectRatio: 0.65,
+        ),
+        itemCount: widget.locations.length,
+        itemBuilder: (context, index) {
+          final location = widget.locations[index];
+          return LocationCard(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => LocationDetailsPage(
+                    location: location.location,
+                    locationName: location.name,
+                    description: location.description,
+                    imageUrl: location.imageUrl,
+                    type: location.type,
+                    locationId: location.id,
+                    securityScore: location.scores['security'],
+                    transportScore: location.scores['transport'],
+                    educationScore: location.scores['education'],
+                    healthScore: location.scores['health'],
+                    socialScore: location.scores['social'],
+                  ),
+                ),
+              ).then((_) {
+                // Sayfaya geri dönüldüğünde ana sayfayı yenile
+                Navigator.pop(context);
+              });
+            },
+            locationName: location.name,
+            description: location.description,
+            imageUrl: location.imageUrl,
+            type: location.type,
+            isGridView: true,
+            location: location.location,
+            mapStyle: MapStyle.voyager,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  late String _userName = '';
+  late String _userCity = '';
+  List<SavedLocationModel> _savedLocations = [];
+  List<MessageModel> _chatHistory = [];
+  final SavedLocationsService _savedLocationsService = SavedLocationsService();
+  final ProfileService _profileService = ProfileService();
+  final LocationRecommendationsService _recommendationsService = LocationRecommendationsService();
+  final PremiumService _premiumService = PremiumService();
+  final ChatHistoryService _chatHistoryService = ChatHistoryService();
+  List<RecentlyViewedLocationModel> _recentlyViewedLocations = [];
+  bool _isLoading = true;
+  String confirmText = '';
+  String resetConfirmText = '';
+  String mogiConfirmText = '';
+
+  @override
+  void initState() {
+    super.initState();
+    initializeDateFormatting('en_US');
+    _initData();
+  }
+
+  Future<void> _initData() async {
+    setState(() => _isLoading = true);
+    
+    try {
+      // PremiumService'i ayrıca başlat
+      await _premiumService.init();
+      
+      await Future.wait([
+        _initChatHistory(),
+        _initSavedLocations(),
+        _initProfile(),
+        _initRecentlyViewedLocations(),
+      ]);
+      
+      // Son mogi puanı durumunu logla
+      print('Profil sayfası - Güncel Mogi puanları: ${_premiumService.mogiPoints}');
+    } catch (e) {
+      print('Profil verilerini yükleme hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Veriler yüklenirken bir hata oluştu: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _initChatHistory() async {
+    await _chatHistoryService.init();
+    final allThreads = _chatHistoryService.getAllThreads();
+    
+    setState(() {
+      _chatHistory = allThreads
+          .where((thread) => thread.isNotEmpty)
+          .map((thread) {
+            final (message, threadId) = _chatHistoryService.getLastUserMessageAndThreadId(thread);
+            return message;
+          })
+          .where((msg) => msg != null)
+          .map((msg) => msg!)
+          .toList();
+    });
+  }
+
+  Future<void> _initSavedLocations() async {
+    await _savedLocationsService.init();
+    final locations = await _savedLocationsService.getSavedLocations();
+    setState(() {
+      _savedLocations = locations;
+    });
+  }
+
+  Future<void> _initProfile() async {
+    await _profileService.init();
+    final profile = await _profileService.getProfile();
+    if (profile != null && mounted) {
+      setState(() {
+        // Çok uzun değerleri kırp
+        if (profile.name.length > 30) {
+          _userName = '${profile.name.substring(0, 30)}...';
+        } else {
+          _userName = profile.name;
+        }
+        
+        if (profile.city.length > 20) {
+          _userCity = '${profile.city.substring(0, 20)}...';
+        } else {
+          _userCity = profile.city;
+        }
+      });
+    }
+  }
+
+  Future<void> _initRecentlyViewedLocations() async {
+    await _recommendationsService.init();
+    final locations = await _recommendationsService.getRecentlyViewedLocations();
+    setState(() {
+      _recentlyViewedLocations = locations;
+    });
+  }
+
+  Future<void> _clearHistory() async {
+    await _chatHistoryService.clearHistory();
+    setState(() {
+      _chatHistory = [];
+    });
+  }
+
+  Future<void> _resetPremiumStatus() async {
+    // Onay diyalogu göster
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Premium Durumunu Sıfırla', 
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF08104F),
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Premium durumunu sıfırlamak istediğinizden emin misiniz?',
+                style: TextStyle(
+                  color: Color(0xFF4B5563),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Bu işlem tüm premium özelliklerinizi ve limitlerinizi sıfırlayacaktır.',
+                style: TextStyle(
+                  color: Color(0xFF4B5563),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              
+              // Güvenlik doğrulama kodu
+              const SizedBox(height: 20),
+              const Text(
+                'Güvenlik doğrulaması için "SIFIRLA" yazın:',
+                style: TextStyle(
+                  color: Color(0xFF4B5563),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                decoration: InputDecoration(
+                  hintText: 'SIFIRLA',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Colors.red),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Colors.red),
+                  ),
+                ),
+                onChanged: (value) {
+                  resetConfirmText = value;
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(
+                'İptal',
+                style: TextStyle(
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                // Doğrulama kontrolü
+                if (resetConfirmText == 'SIFIRLA') {
+                  Navigator.of(context).pop(true);
+                } else {
+                  // Hatalı doğrulama
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Güvenlik doğrulaması başarısız oldu!'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  Navigator.of(context).pop(false);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('Limitleri Sıfırla'),
+            ),
+          ],
+        );
+      },
+    );
+    
+    // Kullanıcı onayladı mı?
+    if (confirm != true) {
+      return; // Kullanıcı onaylamadı, işlemi iptal et
+    }
+    
+    // Onaydan sonra premium durumunu sıfırla
+    try {
+      setState(() => _isLoading = true);
+      await _premiumService.init();
+      
+      // İşlemi gerçekleştir ve logla
+      print('Premium durumu sıfırlama işlemi başlatılıyor...');
+      await _premiumService.resetLimits();
+      print('Premium durumu sıfırlama işlemi tamamlandı');
+      
+      // Kullanıcıya bilgi ver
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Premium durumu sıfırlandı'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        // Sayfayı yenile
+        await _initData();
+      }
+    } catch (e) {
+      print('Premium durumu sıfırlama hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hata: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _resetMogiPoints() async {
+    // Onay diyalogu göster
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Mogi Puanlarını Sıfırla', 
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF08104F),
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Mogi puanlarınızı 5\'e sıfırlamak istediğinizden emin misiniz?',
+                style: TextStyle(
+                  color: Color(0xFF4B5563),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Bu işlem geri alınamaz ve mevcut tüm Mogi puanlarınızı kaybedeceksiniz.',
+                style: TextStyle(
+                  color: Color(0xFF4B5563),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              
+              // Güvenlik doğrulama kodu
+              const SizedBox(height: 20),
+              const Text(
+                'Güvenlik doğrulaması için "PUANISIFIRLA" yazın:',
+                style: TextStyle(
+                  color: Color(0xFF4B5563),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                decoration: InputDecoration(
+                  hintText: 'PUANISIFIRLA',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Colors.orange),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Colors.orange),
+                  ),
+                ),
+                onChanged: (value) {
+                  mogiConfirmText = value;
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(
+                'İptal',
+                style: TextStyle(
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                // Doğrulama kontrolü
+                if (mogiConfirmText == 'PUANISIFIRLA') {
+                  Navigator.of(context).pop(true);
+                } else {
+                  // Hatalı doğrulama
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Güvenlik doğrulaması başarısız oldu!'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  Navigator.of(context).pop(false);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('Puanları Sıfırla'),
+            ),
+          ],
+        );
+      },
+    );
+    
+    // Kullanıcı onayladı mı?
+    if (confirm != true) {
+      return; // Kullanıcı onaylamadı, işlemi iptal et
+    }
+    
+    // Onaydan sonra Mogi puanlarını sıfırla
+    try {
+      setState(() => _isLoading = true);
+      await _premiumService.init();
+      
+      // İşlemi gerçekleştir ve logla
+      print('Mogi puanlarını sıfırlama işlemi başlatılıyor...');
+      await _premiumService.resetMogiPoints();
+      print('Mogi puanlarını sıfırlama işlemi tamamlandı');
+      
+      // Kullanıcıya bilgi ver
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Mogi puanları 5\'e sıfırlandı'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        // Sayfayı yenile
+        await _initData();
+      }
+    } catch (e) {
+      print('Mogi puanlarını sıfırlama hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hata: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _removePremiumStatus() async {
+    // Onay diyalogu göster
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Premium Statüsünü Kaldır', 
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF08104F),
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Premium statüsünü kaldırmak istediğinizden emin misiniz?',
+                style: TextStyle(
+                  color: Color(0xFF4B5563),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Bu işlem geri alınamaz ve premium özelliklerinizi kaybedeceksiniz.',
+                style: TextStyle(
+                  color: Color(0xFF4B5563),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              
+              // Güvenlik doğrulama kodu
+              const SizedBox(height: 20),
+              const Text(
+                'Güvenlik doğrulaması için "KALDIR" yazın:',
+                style: TextStyle(
+                  color: Color(0xFF4B5563),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                decoration: InputDecoration(
+                  hintText: 'KALDIR',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Colors.purple),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Colors.purple),
+                  ),
+                ),
+                onChanged: (value) {
+                  // Değeri bir değişkende saklayabiliriz ama bu örnek için gerek yok
+                  // Doğrulama "OK" düğmesine basıldığında yapılacak
+                  confirmText = value;
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(
+                'İptal',
+                style: TextStyle(
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                // Doğrulama kontrolü
+                if (confirmText == 'KALDIR') {
+                  Navigator.of(context).pop(true);
+                } else {
+                  // Hatalı doğrulama
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Güvenlik doğrulaması başarısız oldu!'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  Navigator.of(context).pop(false);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('Statüsü Kaldır'),
+            ),
+          ],
+        );
+      },
+    );
+    
+    // Kullanıcı onayladı mı?
+    if (confirm != true) {
+      return; // Kullanıcı onaylamadı, işlemi iptal et
+    }
+    
+    // Onaydan sonra premium statüsünü kaldır
+    try {
+      setState(() => _isLoading = true);
+      await _premiumService.init();
+      
+      // İşlemi gerçekleştir ve logla
+      print('Premium statüsü kaldırma işlemi başlatılıyor...');
+      await _premiumService.removePremiumStatus();
+      print('Premium statüsü kaldırma işlemi tamamlandı');
+      
+      // Kullanıcıya bilgi ver
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Premium statüsü kaldırıldı'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        // Sayfayı yenile
+        await _initData();
+      }
+    } catch (e) {
+      print('Premium statüsü kaldırma hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hata: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFFEFBF7),
+      body: SafeArea(
+        child: _isLoading 
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    color: const Color(0xFF6339F9),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Veriler yükleniyor...',
+                    style: TextStyle(
+                      color: const Color(0xFF08104F),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _initData,
+              child: ListView(
+                children: [
+                  // Profile Header
+                  Container(
+                    margin: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [
+                          Color(0xFF6339F9),
+                          Color(0xFF8B6DFA),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF6339F9).withOpacity(0.25),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _userName,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.5,
+                                    shadows: [
+                                      Shadow(
+                                        color: Colors.black26,
+                                        offset: Offset(0, 2),
+                                        blurRadius: 4,
+                                      ),
+                                    ],
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.2),
+                                      width: 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black12,
+                                        offset: Offset(0, 2),
+                                        blurRadius: 4,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.location_on,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          _userCity,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                            letterSpacing: 0.3,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.2),
+                                      width: 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black12,
+                                        offset: Offset(0, 2),
+                                        blurRadius: 4,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.monetization_on,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      _premiumService.isPremium 
+                                        ? Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Text(
+                                                'Premium',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w500,
+                                                  letterSpacing: 0.3,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.amber,
+                                                  borderRadius: BorderRadius.circular(10),
+                                                ),
+                                                child: const Text(
+                                                  'PRO',
+                                                  style: TextStyle(
+                                                    color: Colors.black87,
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          )
+                                        : Text(
+                                            '${_premiumService.mogiPoints} Mogi',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w500,
+                                              letterSpacing: 0.3,
+                                            ),
+                                          ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                IconButton(
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => EditProfilePage(
+                                          onProfileUpdated: _initData,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  icon: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.15),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white.withOpacity(0.2),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.edit,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
+                                // Profil sıfırlama butonu
+                                IconButton(
+                                  onPressed: () async {
+                                    // Onay diyalogu göster
+                                    final bool? confirm = await showDialog<bool>(
+                                      context: context,
+                                      builder: (BuildContext context) {
+                                        return AlertDialog(
+                                          title: const Text('Profili Sıfırla', 
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF08104F),
+                                            ),
+                                          ),
+                                          content: const Text(
+                                            'Profil bilgilerinizi varsayılan değerlere sıfırlamak istediğinizden emin misiniz?',
+                                            style: TextStyle(
+                                              color: Color(0xFF4B5563),
+                                            ),
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.of(context).pop(false),
+                                              child: const Text(
+                                                'İptal',
+                                                style: TextStyle(
+                                                  color: Colors.grey,
+                                                ),
+                                              ),
+                                            ),
+                                            ElevatedButton(
+                                              onPressed: () => Navigator.of(context).pop(true),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(0xFF7E5BED),
+                                                foregroundColor: Colors.white,
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
+                                              ),
+                                              child: const Text('Sıfırla'),
+                                            ),
+                                          ],
+                                        );
+                                      },
+                                    );
+                                    
+                                    if (confirm == true) {
+                                      // Yükleme göstergesi göster
+                                      setState(() => _isLoading = true);
+                                      
+                                      try {
+                                        // Profili sıfırla
+                                        await _profileService.resetProfile();
+                                        
+                                        // Profil verilerini yeniden yükle
+                                        await _initProfile();
+                                        
+                                        if (mounted) {
+                                          // Başarı bildirimi göster
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Profil başarıyla sıfırlandı'),
+                                              backgroundColor: Color(0xFF7E5BED),
+                                              duration: Duration(seconds: 3),
+                                              behavior: SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                          
+                                          // Başarı diyaloğu göster
+                                          showDialog(
+                                            context: context,
+                                            builder: (context) => Dialog(
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(24),
+                                              ),
+                                              child: Container(
+                                                padding: const EdgeInsets.all(24),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white,
+                                                  borderRadius: BorderRadius.circular(24),
+                                                ),
+                                                child: Column(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Container(
+                                                      padding: const EdgeInsets.all(16),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(0xFF7E5BED).withOpacity(0.1),
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                      child: const Icon(
+                                                        Icons.check_circle_outline,
+                                                        color: Color(0xFF7E5BED),
+                                                        size: 32,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 24),
+                                                    const Text(
+                                                      'Profil Sıfırlandı',
+                                                      style: TextStyle(
+                                                        fontSize: 20,
+                                                        fontWeight: FontWeight.bold,
+                                                        color: Color(0xFF08104F),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 8),
+                                                    const Text(
+                                                      'Profil bilgileriniz başarıyla varsayılan değerlere sıfırlandı.',
+                                                      textAlign: TextAlign.center,
+                                                      style: TextStyle(
+                                                        color: Color(0xFF6B7280),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 24),
+                                                    ElevatedButton(
+                                                      onPressed: () => Navigator.pop(context),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: const Color(0xFF7E5BED),
+                                                        foregroundColor: Colors.white,
+                                                        minimumSize: const Size(double.infinity, 48),
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius: BorderRadius.circular(12),
+                                                        ),
+                                                      ),
+                                                      child: const Text('Tamam'),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        print('Profil sıfırlama hatası: $e');
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('Profil sıfırlanırken bir hata oluştu: $e'),
+                                              backgroundColor: Colors.red,
+                                              duration: Duration(seconds: 3),
+                                              behavior: SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                        }
+                                      } finally {
+                                        if (mounted) {
+                                          setState(() => _isLoading = false);
+                                        }
+                                      }
+                                    }
+                                  },
+                                  icon: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.15),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white.withOpacity(0.2),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.refresh,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: _buildStatCard(
+                                context,
+                                icon: Icons.bookmark,
+                                title: '${_savedLocations.length}',
+                                subtitle: 'Saved\nLocations',
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _buildStatCard(
+                                context,
+                                icon: Icons.chat_bubble,
+                                title: '${_chatHistory.length}',
+                                subtitle: 'AI Chat\nHistory',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Recently Viewed Locations
+                  if (_savedLocations.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Saved Locations',
+                            style: const TextStyle(
+                              color: Color(0xFF08104F),
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => AllLocationsPage(
+                                    locations: _savedLocations,
+                                  ),
+                                ),
+                              ).then((_) => _initData());
+                            },
+                            child: Text(
+                              'View All',
+                              style: TextStyle(
+                                color: const Color(0xFF6339F9),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      height: 200,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _savedLocations.length > 5 ? 5 : _savedLocations.length,
+                        itemBuilder: (context, index) {
+                          final location = _savedLocations[index];
+                          return Container(
+                            width: 200,
+                            margin: const EdgeInsets.only(right: 16),
+                            child: LocationCard(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => LocationDetailsPage(
+                                      location: LatLng(
+                                        location.location.latitude,
+                                        location.location.longitude,
+                                      ),
+                                      locationName: location.name,
+                                      description: location.description,
+                                      imageUrl: location.imageUrl,
+                                      type: location.type,
+                                      locationId: location.id,
+                                      securityScore: location.scores['security'],
+                                      transportScore: location.scores['transport'],
+                                      educationScore: location.scores['education'],
+                                      healthScore: location.scores['health'],
+                                      socialScore: location.scores['social'],
+                                    ),
+                                  ),
+                                ).then((_) => _initData());
+                              },
+                              locationName: location.name,
+                              description: location.description,
+                              imageUrl: location.imageUrl,
+                              type: location.type,
+                              locationId: location.id,
+                              location: LatLng(
+                                location.location.latitude,
+                                location.location.longitude,
+                              ),
+                              mapStyle: MapStyle.voyager,
+                              securityScore: location.scores['security'],
+                              transportScore: location.scores['transport'],
+                              educationScore: location.scores['education'],
+                              healthScore: location.scores['health'],
+                              socialScore: location.scores['social'],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                  // Chat History
+                  if (_chatHistory.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Chat History',
+                            style: TextStyle(
+                              color: Color(0xFF08104F),
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () {
+                              showDialog(
+                                context: context,
+                                builder: (context) => Dialog(
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(24),
+                                  ),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(24),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(24),
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(16),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red.withOpacity(0.1),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.delete_outline,
+                                            color: Colors.red,
+                                            size: 32,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        const Text(
+                                          'Clear Chat History',
+                                          style: TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF08104F),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        const Text(
+                                          'Are you sure you want to clear all chat history?',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: Color(0xFF6B7280),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                          children: [
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(context),
+                                              child: const Text(
+                                                'Cancel',
+                                                style: TextStyle(
+                                                  color: Color(0xFF6B7280),
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ),
+                                            ElevatedButton(
+                                              onPressed: () {
+                                                _clearHistory();
+                                                Navigator.pop(context);
+                                              },
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Colors.red,
+                                                foregroundColor: Colors.white,
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                              ),
+                                              child: const Text('Clear'),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              color: Colors.red,
+                              size: 24,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _chatHistory.length > 5 ? 5 : _chatHistory.length,
+                      itemBuilder: (context, index) {
+                        final message = _chatHistory[index];
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(20),
+                            child: InkWell(
+                              onTap: () => _handleChatTap(message),
+                              borderRadius: BorderRadius.circular(20),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(
+                                          colors: [
+                                            Color(0xFF6339F9),
+                                            Color(0xFF8B6DFA),
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: const Icon(
+                                        Icons.assistant,
+                                        color: Colors.white,
+                                        size: 24,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            message.text,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Color(0xFF08104F),
+                                              fontSize: 16,
+                                              height: 1.5,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            _formatDate(message.createdAt),
+                                            style: TextStyle(
+                                              color: const Color(0xFF6B7280),
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.arrow_forward_ios,
+                                      color: Color(0xFF6B7280),
+                                      size: 16,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    if (_chatHistory.length > 5) ...[
+                      Center(
+                        child: TextButton(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ChatHistoryPage(
+                                  chatHistory: _chatHistory,
+                                  onChatSelected: (message) async {
+                                    final allThreads = _chatHistoryService.getAllThreads();
+                                    final thread = allThreads.firstWhere(
+                                      (t) => t.any((m) => m.text == message.text && m.createdAt == message.createdAt),
+                                      orElse: () => [],
+                                    );
+                                    
+                                    if (thread.isNotEmpty) {
+                                      final threadId = thread.first.threadId;
+                                      if (threadId != null) {
+                                        await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => AIAssistantPage(
+                                              threadId: threadId,
+                                            ),
+                                          ),
+                                        );
+                                        await _initData();
+                                      }
+                                    }
+                                  },
+                                ),
+                              ),
+                            );
+                          },
+                          child: Text(
+                            'View All Chats',
+                            style: TextStyle(
+                              color: const Color(0xFF6339F9),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                  const SizedBox(height: 32),
+                  // Reset Premium Status Button
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: ElevatedButton(
+                      onPressed: _resetPremiumStatus,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.withOpacity(0.1),
+                        foregroundColor: Colors.red,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: const Text(
+                        'Reset Premium Status',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Mogi Puanlarını Sıfırla düğmesi
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: ElevatedButton(
+                      onPressed: _resetMogiPoints,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange.withOpacity(0.1),
+                        foregroundColor: Colors.orange,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: const Text(
+                        'Mogi Puanlarını 5\'e Sıfırla',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Premium Statüsünü Kaldır düğmesi
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: ElevatedButton(
+                      onPressed: _removePremiumStatus,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple.withOpacity(0.1),
+                        foregroundColor: Colors.purple,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: const Text(
+                        'Premium Statüsünü Kaldır',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                ],
+              ),
+            ),
+      ),
+    );
+  }
+
+  bool _isSameDay(DateTime date1, DateTime date2) {
+    return date1.year == date2.year &&
+        date1.month == date2.month &&
+        date1.day == date2.day;
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final messageDate = DateTime(date.year, date.month, date.day);
+
+    if (messageDate == today) {
+      return 'Today';
+    } else if (messageDate == yesterday) {
+      return 'Yesterday';
+    } else {
+      return DateFormat('d MMMM y', 'en_US').format(date);
+    }
+  }
+
+  // Sohbete tıklama işleyicisi
+  Future<void> _handleChatTap(MessageModel message) async {
+    final allThreads = _chatHistoryService.getAllThreads();
+    final thread = allThreads.firstWhere(
+      (t) => t.any((m) => m.text == message.text && m.createdAt == message.createdAt),
+      orElse: () => [],
+    );
+    
+    if (thread.isNotEmpty) {
+      final threadId = thread.first.threadId;
+      if (threadId != null) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AIAssistantPage(
+              threadId: threadId,
+            ),
+          ),
+        );
+        await _initData();
+      }
+    }
+  }
+
+  Widget _buildStatCard(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              icon,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 14,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+} 
