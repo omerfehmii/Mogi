@@ -36,13 +36,14 @@ MOGI is an AI-powered location analysis and comparison application leveraging Op
 
 <p align="center">
   <img src="screenshots/explore_screen.png" alt="Explore Screen" width="220">
-  <img src="screenshots/location_details.png" alt="Location Details" width="220">
+  <img src="screenshots/location_comparison.png" alt="AI HUB" width="220">
   <img src="screenshots/ai_assistant.png" alt="AI Assistant" width="220">
 </p>
 
 <p align="center">
-  <img src="screenshots/location_comparison.png" alt="Location Comparison" width="220">
+  
   <img src="screenshots/map_view.png" alt="Map View" width="220">
+  <img src="screenshots/location_details.png" alt="Location Details" width="220">
   <img src="screenshots/profile_page.png" alt="Profile Page" width="220">
 </p>
 
